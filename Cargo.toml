@@ -1,0 +1,21 @@
+[package]
+name = "quic-tun"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+quinn={version="*",git="https://github.com/quinn-rs/quinn"}
+structopt={version="*"}
+tokio={version="*", features=["full"]}
+anyhow="*"
+log="*"
+env_logger="*"
+futures-util="*"
+rustls = { version = "0.19", features = ["quic", "dangerous_configuration"]}
+webpki="*"
+rcgen="*"
+futures="*"
+sha2="*"
+hex="*"
