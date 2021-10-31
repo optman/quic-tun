@@ -10,6 +10,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 mod config;
 use config::{client_config, server_config};
+use std::convert::TryInto;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "quic-tun")]
@@ -28,6 +29,10 @@ struct ClientOpt {
     remote_addr: String,
     #[structopt(short = "p", long = "fingerprint")]
     fingerprint: Option<String>,
+    #[structopt(short = "e", long = "psk")]
+    psk: Option<String>,
+    #[structopt(skip = [0;32])]
+    auth_key: Option<[u8; 32]>,
 }
 
 #[derive(StructOpt, Debug)]
@@ -38,6 +43,10 @@ struct ServerOpt {
     forward_addr: String,
     #[structopt(short = "c", long = "cert-file")]
     cert_file: Option<String>,
+    #[structopt(short = "e", long = "psk")]
+    psk: Option<String>,
+    #[structopt(skip = [0;32])]
+    auth_key: Option<[u8; 32]>,
 }
 
 fn main() {
@@ -52,14 +61,18 @@ fn main() {
 
 fn run(opt: Opt) -> Result<()> {
     match opt {
-        Opt::Client(opt) => run_client(Arc::new(opt)),
-        Opt::Server(opt) => run_server(Arc::new(opt)),
+        Opt::Client(opt) => run_client(opt),
+        Opt::Server(opt) => run_server(opt),
         Opt::GenCert => gen_cert(),
     }
 }
 
 #[tokio::main]
-async fn run_client(opt: Arc<ClientOpt>) -> Result<()> {
+async fn run_client(mut opt: ClientOpt) -> Result<()> {
+    if let Some(psk) = &opt.psk {
+        opt.auth_key = Some(auth_key(&psk));
+    }
+
     let ln = TcpListener::bind(opt.local_addr).await?;
 
     log::info!("local:{}, remote:{}", ln.local_addr()?, opt.remote_addr,);
@@ -102,7 +115,19 @@ async fn run_client(opt: Arc<ClientOpt>) -> Result<()> {
                     }
                 }
 
-                Ok(c.connection)
+                let c = c.connection;
+
+                if let Some(auth_key) = &opt.auth_key {
+                    match c.open_bi().await {
+                        Ok(mut s) => {
+                            let _ = s.0.write(auth_key).await;
+                            Ok(())
+                        }
+                        Err(_) => Err("auth fail"),
+                    }?;
+                }
+
+                Ok(c)
             }
 
             Err(_) => Err("connect to remote fail"),
@@ -169,7 +194,11 @@ async fn run_client(opt: Arc<ClientOpt>) -> Result<()> {
 }
 
 #[tokio::main]
-async fn run_server(opt: Arc<ServerOpt>) -> Result<()> {
+async fn run_server(mut opt: ServerOpt) -> Result<()> {
+    if let Some(psk) = &opt.psk {
+        opt.auth_key = Some(auth_key(&psk));
+    }
+
     let mut builder = Endpoint::builder();
 
     let (cfg, cert) = server_config(&opt.cert_file)?;
@@ -183,6 +212,7 @@ async fn run_server(opt: Arc<ServerOpt>) -> Result<()> {
         fingerprint(&cert),
     );
 
+    let opt = Arc::new(opt);
     while let Some(conn) = incoming.next().await {
         log::trace!("new connection {:?}", conn.remote_address());
 
@@ -196,8 +226,10 @@ async fn run_server(opt: Arc<ServerOpt>) -> Result<()> {
 
         let opt = opt.clone();
         tokio::spawn(async move {
+            let mut auth = false;
+
             while let Some(stream) = bi_streams.next().await {
-                let stream0 = match stream {
+                let mut stream0 = match stream {
                     Err(e) => {
                         log::trace!("next bi stream fail, {:?}", e);
                         return;
@@ -206,6 +238,20 @@ async fn run_server(opt: Arc<ServerOpt>) -> Result<()> {
                 };
 
                 log::trace!("new stream");
+
+                if !auth && opt.auth_key.is_some() {
+                    let mut buf = [0; 32];
+                    let _ = stream0.1.read_exact(&mut buf[..]).await;
+                    if buf == *opt.auth_key.as_ref().unwrap() {
+                        log::trace!("authenticate pass!");
+                        auth = true;
+                        continue;
+                    } else {
+                        log::trace!("authenticate fail!");
+                        break;
+                    }
+                }
+
                 let opt = opt.clone();
                 tokio::spawn(async move {
                     log::trace!("connecting {:?}", opt.forward_addr);
@@ -258,4 +304,10 @@ fn gen_cert() -> Result<()> {
     );
 
     Ok(())
+}
+
+fn auth_key(psk: &String) -> [u8; 32] {
+    let mut hs = Sha256::new();
+    hs.update(psk);
+    (*hs.finalize()).try_into().unwrap()
 }
