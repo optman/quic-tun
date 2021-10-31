@@ -33,6 +33,8 @@ struct ClientOpt {
     psk: Option<String>,
     #[structopt(skip = [0;32])]
     auth_key: Option<[u8; 32]>,
+    #[structopt(short = "d", long = "daemonize")]
+    daemonize: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -47,6 +49,8 @@ struct ServerOpt {
     psk: Option<String>,
     #[structopt(skip = [0;32])]
     auth_key: Option<[u8; 32]>,
+    #[structopt(short = "d", long = "daemonize")]
+    daemonize: bool,
 }
 
 fn main() {
@@ -61,10 +65,26 @@ fn main() {
 
 fn run(opt: Opt) -> Result<()> {
     match opt {
-        Opt::Client(opt) => run_client(opt),
-        Opt::Server(opt) => run_server(opt),
+        Opt::Client(opt) => {
+            if opt.daemonize {
+                daemonize();
+            }
+            run_client(opt)
+        }
+        Opt::Server(opt) => {
+            if opt.daemonize {
+                daemonize();
+            }
+            run_server(opt)
+        }
         Opt::GenCert => gen_cert(),
     }
+}
+
+fn daemonize() {
+    daemonize::Daemonize::new() /*.user("nobody")*/
+        .start()
+        .unwrap();
 }
 
 #[tokio::main]
