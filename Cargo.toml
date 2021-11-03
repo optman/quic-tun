@@ -20,3 +20,4 @@ futures="*"
 sha2="*"
 hex="*"
 daemonize="*"
+tokio-io-timeout = {version = "*", git="https://github.com/sfackler/tokio-io-timeout"}

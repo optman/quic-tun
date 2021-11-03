@@ -4,9 +4,11 @@ use quinn::Endpoint;
 use sha2::{Digest, Sha256};
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
+use std::time::Duration;
 use structopt::StructOpt;
 use tokio::io::{copy, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_io_timeout::TimeoutReader;
 
 mod config;
 use config::{client_config, server_config};
@@ -52,6 +54,8 @@ struct ServerOpt {
     #[structopt(short = "d", long = "daemonize")]
     daemonize: bool,
 }
+
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn main() {
     let opt: Opt = StructOpt::from_args();
@@ -193,18 +197,25 @@ async fn run_client(mut opt: ClientOpt) -> Result<()> {
         };
 
         tokio::spawn(async move {
-            let (mut recv0, mut send0) = stream0.split();
-            let (mut send1, mut recv1) = stream1;
+            let (recv0, mut send0) = stream0.split();
+            let (mut send1, recv1) = stream1;
+
+            let mut recv0 = TimeoutReader::new(recv0);
+            recv0.set_timeout(Some(READ_TIMEOUT));
+
+            let mut recv1 = TimeoutReader::new(recv1);
+            recv1.set_timeout(Some(READ_TIMEOUT));
 
             let a = async {
-                let _ = copy(&mut recv0, &mut send1).await;
+                let _ = copy(&mut Box::pin(recv0), &mut send1).await;
                 let _ = send1.finish().await;
             };
             let b = async {
-                let _ = copy(&mut recv1, &mut send0).await;
+                let _ = copy(&mut Box::pin(recv1), &mut send0).await;
                 let _ = send0.shutdown().await;
             };
-            tokio::join!(a, b);
+
+            let _ = tokio::join!(a, b);
 
             log::trace!("finish connection");
         });
@@ -285,20 +296,26 @@ async fn run_server(mut opt: ServerOpt) -> Result<()> {
 
                     log::trace!("{:?} connected", &opt.forward_addr);
 
-                    let (mut send0, mut recv0) = stream0;
-                    let (mut recv1, mut send1) = stream1.split();
+                    let (mut send0, recv0) = stream0;
+                    let (recv1, mut send1) = stream1.split();
+
+                    let mut recv0 = TimeoutReader::new(recv0);
+                    recv0.set_timeout(Some(READ_TIMEOUT));
+
+                    let mut recv1 = TimeoutReader::new(recv1);
+                    recv1.set_timeout(Some(READ_TIMEOUT));
 
                     let a = async {
-                        let _ = copy(&mut recv0, &mut send1).await;
+                        let _ = copy(&mut Box::pin(recv0), &mut send1).await;
                         let _ = send1.shutdown().await;
                     };
 
                     let b = async {
-                        let _ = copy(&mut recv1, &mut send0).await;
+                        let _ = copy(&mut Box::pin(recv1), &mut send0).await;
                         let _ = send0.finish().await;
                     };
 
-                    tokio::join!(a, b);
+                    let _ = tokio::join!(a, b);
 
                     log::trace!("finish stream");
                 });

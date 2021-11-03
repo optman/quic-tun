@@ -584,6 +584,7 @@ dependencies = [
  "sha2",
  "structopt",
  "tokio",
+ "tokio-io-timeout",
  "webpki",
 ]
 
@@ -976,6 +977,15 @@ dependencies = [
  "signal-hook-registry",
  "tokio-macros",
  "winapi",
+]
+
+[[package]]
+name = "tokio-io-timeout"
+version = "1.1.1"
+source = "git+https://github.com/sfackler/tokio-io-timeout#d2946f6a041bef635846f549adf9496d6d466280"
+dependencies = [
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
