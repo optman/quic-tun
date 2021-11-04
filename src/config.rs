@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use quinn::{Certificate, CertificateChain, ClientConfig, PrivateKey, ServerConfig};
+use std::convert::TryInto;
 use std::fs;
 use std::sync::Arc;
+use std::time::Duration;
 
 struct SkipServerVerification;
 
@@ -26,7 +28,11 @@ impl rustls::ServerCertVerifier for SkipServerVerification {
 pub(crate) fn client_config() -> ClientConfig {
     let mut cfg = ClientConfig::with_root_certificates(vec![]).unwrap();
 
-    let tls_cfg: &mut rustls::ClientConfig = Arc::get_mut(&mut cfg.crypto).unwrap();
+    let tp_cfg = Arc::get_mut(&mut cfg.transport).unwrap();
+    tp_cfg.keep_alive_interval(Some(Duration::from_secs(10)));
+    tp_cfg.max_idle_timeout(Some(Duration::from_secs(60).try_into().unwrap()));
+
+    let tls_cfg = Arc::get_mut(&mut cfg.crypto).unwrap();
     tls_cfg
         .dangerous()
         .set_certificate_verifier(SkipServerVerification::new());
@@ -56,7 +62,10 @@ pub(crate) fn server_config(cert_file: &Option<String>) -> Result<(ServerConfig,
 
     let cert_chain = CertificateChain::from_certs(vec![cert]);
 
-    let server_config = ServerConfig::with_single_cert(cert_chain, priv_key)?;
+    let mut cfg = ServerConfig::with_single_cert(cert_chain, priv_key)?;
 
-    Ok((server_config, cert_der))
+    let tp_cfg = Arc::get_mut(&mut cfg.transport).unwrap();
+    tp_cfg.max_idle_timeout(Some(Duration::from_secs(60).try_into().unwrap()));
+
+    Ok((cfg, cert_der))
 }
