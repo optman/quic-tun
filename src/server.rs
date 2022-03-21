@@ -13,8 +13,7 @@ use structopt::StructOpt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc::channel;
-use tokio::{task, time};
+use tokio::task;
 
 #[derive(StructOpt, Debug)]
 pub(crate) struct ServerOpt {
@@ -67,32 +66,12 @@ pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
         Some(rndz_server) => {
             log::info!("rndz server: {}", rndz_server);
 
-            let (tx, mut rx) = channel(1);
+            let c = rndz::client::Client::new(&rndz_server, &opt.id.as_ref().unwrap())?;
+            let mut a = c.listen()?;
 
-            let rndz_server = rndz_server.clone();
-            let id = opt.id.as_ref().unwrap().clone();
-            task::spawn(async move {
-                loop {
-                    let accept = || -> Result<_> {
-                        let mut c = rndz::client::Client::new(&rndz_server, &id)?;
-                        let (socket, _addr) = c.accept()?;
-                        Ok(socket)
-                    };
-                    match accept() {
-                        Ok(s) => {
-                            tx.send(s).await.unwrap();
-                        }
-                        Err(e) => {
-                            println!("accpet fail {}", e);
-                            time::sleep(Duration::from_secs(30)).await;
-                        }
-                    }
-                }
-            });
-
-            while let Some(socket) = rx.recv().await {
+            while let Ok((socket, _addr)) = a.accept() {
                 let cfg = cfg.clone();
-                let mut builder = Endpoint::builder();
+                let mut builder = Endpoint::builder(); //builder clone not compiled!
                 builder.listen(cfg);
                 let (_, incoming) = builder.with_socket(socket).unwrap();
 
