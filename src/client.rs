@@ -12,8 +12,14 @@ use tokio::net::{TcpListener, TcpStream};
 
 #[derive(StructOpt, Debug)]
 pub(crate) struct ClientOpt {
-    #[structopt(short = "r", long = "remote-addr")]
-    remote_addr: String,
+    #[structopt(short = "r", long = "remote-addr", required_unless = "remote-id")]
+    remote_addr: Option<String>,
+    #[structopt(long = "rndz-server", required_unless = "remote-addr")]
+    rndz_server: Option<String>,
+    #[structopt(long = "remote-id", required_unless = "remote-addr")]
+    remote_id: Option<String>,
+    #[structopt(long = "id")]
+    id: Option<String>,
     #[structopt(
         short = "l",
         long = "local-addr",
@@ -37,6 +43,45 @@ pub(crate) struct ClientOpt {
     pub(crate) daemonize: bool,
 }
 
+fn new_ep(opt: &ClientOpt) -> Result<(quinn::Endpoint, SocketAddr)> {
+    let mut builder = Endpoint::builder();
+
+    builder.default_client_config(client_config());
+
+    if let Some(remote_addr) = opt.remote_addr.as_ref() {
+        let remote_addr = remote_addr
+            .to_socket_addrs()?
+            .next()
+            .ok_or(anyhow!("no addr"))?;
+
+        let bind_addr = match remote_addr {
+            SocketAddr::V4(_) => "0.0.0.0:0",
+            SocketAddr::V6(_) => "[::]:0",
+        };
+
+        let (endpoint, _incoming) = builder.bind(&bind_addr.parse()?)?;
+
+        Ok((endpoint, remote_addr))
+    } else {
+        let rndz_server = opt
+            .rndz_server
+            .as_ref()
+            .ok_or(anyhow!("rndz server not set"))?;
+
+        let remote_id = opt.remote_id.as_ref().ok_or(anyhow!("remote id not set"))?;
+
+        let mut c = rndz::client::Client::new(
+            rndz_server,
+            opt.id.as_ref().unwrap_or(&"anonymous".to_string()),
+        )?;
+        let (socket, remote_addr) = c.connect(remote_id)?;
+
+        let (endpoint, _incoming) = builder.with_socket(socket)?;
+
+        Ok((endpoint, remote_addr))
+    }
+}
+
 #[tokio::main]
 pub(crate) async fn run_client(mut opt: ClientOpt) -> Result<()> {
     if let Some(psk) = &opt.psk {
@@ -45,46 +90,25 @@ pub(crate) async fn run_client(mut opt: ClientOpt) -> Result<()> {
 
     let rto = Duration::from_secs(opt.read_timeout);
 
-    let mut builder = Endpoint::builder();
-
-    builder.default_client_config(client_config());
-
-    let remote_addr = opt.remote_addr.to_socket_addrs()?.next().unwrap();
-
-    let bind_addr = match remote_addr {
-        SocketAddr::V4(_) => "0.0.0.0:0",
-        SocketAddr::V6(_) => "[::]:0",
-    };
-
-    let (endpoint, _incoming) = builder.bind(&bind_addr.parse()?)?;
+    log::info!(
+        "remote: {}",
+        opt.remote_addr.as_ref().or(opt.remote_id.as_ref()).unwrap()
+    );
 
     if opt.local_addr.is_none() {
-        log::info!(
-            "forward:{}, remote:{}",
-            opt.forward_addr.as_ref().unwrap(),
-            opt.remote_addr,
-        );
+        log::info!("forward:{}", opt.forward_addr.as_ref().unwrap(),);
 
-        local_forward(&remote_addr, &endpoint, &opt, rto).await
+        local_forward(&opt, rto).await
     } else {
-        log::info!(
-            "listen:{}, remote:{}",
-            opt.local_addr.as_ref().unwrap(),
-            opt.remote_addr,
-        );
+        log::info!("listen:{}", opt.local_addr.as_ref().unwrap(),);
 
-        remote_forward(&remote_addr, &endpoint, &opt, rto).await
+        remote_forward(&opt, rto).await
     }
 }
 
-async fn local_forward(
-    remote_addr: &SocketAddr,
-    endpoint: &quinn::Endpoint,
-    opt: &ClientOpt,
-    rto: Duration,
-) -> Result<()> {
+async fn local_forward(opt: &ClientOpt, rto: Duration) -> Result<()> {
     loop {
-        let mut conn = match conn_remote(remote_addr, endpoint, opt).await {
+        let mut conn = match conn_remote(opt).await {
             Ok(c) => c,
             Err(_) => {
                 std::thread::sleep(Duration::from_secs(30));
@@ -147,11 +171,9 @@ async fn local_forward(
     Err(anyhow!("internal fail"))
 }
 
-async fn conn_remote(
-    remote_addr: &SocketAddr,
-    endpoint: &quinn::Endpoint,
-    opt: &ClientOpt,
-) -> Result<quinn::NewConnection> {
+async fn conn_remote(opt: &ClientOpt) -> Result<quinn::NewConnection> {
+    let (endpoint, remote_addr) = new_ep(opt)?;
+
     let conn = endpoint
         .connect(&remote_addr, "what-ever-name")
         .unwrap()
@@ -211,15 +233,10 @@ async fn handle_forward(
     Ok(())
 }
 
-async fn remote_forward(
-    remote_addr: &SocketAddr,
-    endpoint: &quinn::Endpoint,
-    opt: &ClientOpt,
-    rto: Duration,
-) -> Result<()> {
+async fn remote_forward(opt: &ClientOpt, rto: Duration) -> Result<()> {
     let ln = TcpListener::bind(opt.local_addr.unwrap()).await?;
 
-    let mut conn1 = Some(conn_remote(remote_addr, endpoint, opt).await.unwrap());
+    let mut conn1 = Some(conn_remote(opt).await.unwrap());
 
     while let Ok((stream0, src)) = ln.accept().await {
         log::trace!("new connection, {:?}", src);
@@ -229,7 +246,7 @@ async fn remote_forward(
         let stream1 = loop {
             if conn1.is_none() {
                 log::debug!("reconnect remote");
-                conn1 = match conn_remote(remote_addr, endpoint, opt).await {
+                conn1 = match conn_remote(opt).await {
                     Ok(c) => Some(c),
                     Err(_) => None,
                 };

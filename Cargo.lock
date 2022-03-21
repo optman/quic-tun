@@ -568,6 +568,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "protobuf"
+version = "2.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf7e6d18738ecd0902d30d1ad232c9125985a3422929b16c65517b38adc14f96"
+
+[[package]]
+name = "protobuf-codegen"
+version = "2.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aec1632b7c8f2e620343439a7dfd1f3c47b18906c4be58982079911482b5d707"
+dependencies = [
+ "protobuf",
+]
+
+[[package]]
+name = "protobuf-codegen-pure"
+version = "2.27.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f8122fdb18e55190c796b088a16bdb70cd7acdcd48f7a8b796b58c62e532cc6"
+dependencies = [
+ "protobuf",
+ "protobuf-codegen",
+]
+
+[[package]]
 name = "quic-tun"
 version = "0.1.0"
 dependencies = [
@@ -581,6 +606,7 @@ dependencies = [
  "log",
  "quinn",
  "rcgen",
+ "rndz",
  "rustls",
  "sha2",
  "structopt",
@@ -740,6 +766,16 @@ dependencies = [
  "untrusted",
  "web-sys",
  "winapi",
+]
+
+[[package]]
+name = "rndz"
+version = "0.1.0"
+source = "git+https://github.com/optman/rndz#7b91bb9853b390fef7c921ca8f47c532b42cdb5b"
+dependencies = [
+ "protobuf",
+ "protobuf-codegen-pure",
+ "structopt",
 ]
 
 [[package]]

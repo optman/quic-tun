@@ -13,11 +13,13 @@ use structopt::StructOpt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc::channel;
+use tokio::{task, time};
 
 #[derive(StructOpt, Debug)]
 pub(crate) struct ServerOpt {
-    #[structopt(short = "l", long = "local-addr")]
-    local_addr: SocketAddr,
+    #[structopt(short = "l", long = "local-addr", required_unless = "id")]
+    local_addr: Option<SocketAddr>,
     #[structopt(short = "f", long = "forward-addr")]
     forward_addr: Option<String>,
     #[structopt(short = "c", long = "cert-file")]
@@ -30,6 +32,10 @@ pub(crate) struct ServerOpt {
     read_timeout: u64,
     #[structopt(short = "d", long = "daemonize")]
     pub(crate) daemonize: bool,
+    #[structopt(long = "rndz-server", required_unless = "local-addr")]
+    rndz_server: Option<String>,
+    #[structopt(long = "id", required_unless = "local-addr")]
+    id: Option<String>,
 }
 
 #[tokio::main]
@@ -38,20 +44,8 @@ pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
         opt.auth_key = Some(auth_key(&psk));
     }
 
-    let rto = Duration::from_secs(opt.read_timeout);
-
-    let mut builder = Endpoint::builder();
-
     let (cfg, cert) = server_config(&opt.cert_file)?;
-    builder.listen(cfg);
-
-    let (endpoint, mut incoming) = builder.bind(&opt.local_addr)?;
-
-    log::info!(
-        "local:{}, fingerprint: {}",
-        endpoint.local_addr()?,
-        fingerprint(&cert),
-    );
+    log::info!("fingerprint: {}", fingerprint(&cert),);
 
     let remote_forward = opt.forward_addr.is_none();
     if !remote_forward {
@@ -59,6 +53,61 @@ pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
     }
 
     let opt = Arc::new(opt);
+
+    match opt.rndz_server.as_ref() {
+        None => {
+            let mut builder = Endpoint::builder();
+            builder.listen(cfg);
+            let (endpoint, incoming) = builder.bind(opt.local_addr.as_ref().unwrap())?;
+
+            log::info!("local:{}", endpoint.local_addr().unwrap());
+
+            handle_incoming(incoming, opt).await?;
+        }
+        Some(rndz_server) => {
+            log::info!("rndz server: {}", rndz_server);
+
+            let (tx, mut rx) = channel(1);
+
+            let rndz_server = rndz_server.clone();
+            let id = opt.id.as_ref().unwrap().clone();
+            task::spawn(async move {
+                loop {
+                    let accept = || -> Result<_> {
+                        let mut c = rndz::client::Client::new(&rndz_server, &id)?;
+                        let (socket, _addr) = c.accept()?;
+                        Ok(socket)
+                    };
+                    match accept() {
+                        Ok(s) => {
+                            tx.send(s).await.unwrap();
+                        }
+                        Err(e) => {
+                            println!("accpet fail {}", e);
+                            time::sleep(Duration::from_secs(30)).await;
+                        }
+                    }
+                }
+            });
+
+            while let Some(socket) = rx.recv().await {
+                let cfg = cfg.clone();
+                let mut builder = Endpoint::builder();
+                builder.listen(cfg);
+                let (_, incoming) = builder.with_socket(socket).unwrap();
+
+                let opt = opt.clone();
+                task::spawn(handle_incoming(incoming, opt));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_incoming(mut incoming: quinn::Incoming, opt: Arc<ServerOpt>) -> Result<()> {
+    let rto = Duration::from_secs(opt.read_timeout);
+
     while let Some(conn) = incoming.next().await {
         log::trace!("new connection {:?}", conn.remote_address());
 

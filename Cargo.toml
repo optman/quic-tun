@@ -22,3 +22,4 @@ hex="*"
 daemonize="*"
 libc="*"
 tokio-io-timeout={ version = "*", git="https://github.com/sfackler/tokio-io-timeout"}
+rndz={version="*", git="https://github.com/optman/rndz"}
