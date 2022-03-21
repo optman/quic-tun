@@ -4,6 +4,7 @@ use crate::config::client_config;
 use anyhow::{anyhow, Result};
 use futures_util::stream::StreamExt;
 use quinn::Endpoint;
+use rndz::Client as rndz;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::time::Duration;
 use structopt::StructOpt;
@@ -70,7 +71,7 @@ fn new_ep(opt: &ClientOpt) -> Result<(quinn::Endpoint, SocketAddr)> {
 
         let remote_id = opt.remote_id.as_ref().ok_or(anyhow!("remote id not set"))?;
 
-        let mut c = rndz::client::Client::new(
+        let mut c = rndz::new(
             rndz_server,
             opt.id.as_ref().unwrap_or(&"anonymous".to_string()),
         )?;

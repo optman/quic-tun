@@ -2,9 +2,11 @@
 
 A simple tcp port forwarding use QUIC as transport, based on [quinn](https://github.com/quinn-rs/quinn).
 
-### Usage
+Support nat traversal or hole punching by [rndz](https://github.com/optman/rndz).
 
-1. map local port to remote
+## Usage
+
+### map local port to remote
 
 Server Side:
 ```
@@ -24,7 +26,7 @@ Test
 $curl client:80
 ```
 
-2. map remote port to local
+### map remote port to local
 
 Server Side:
 ```
@@ -42,5 +44,11 @@ Test
 ```
 $curl server:80
 ```
+
+### Use rndz serve to help hole punching
+
+replace ```-l``` with  ```--rndz-server``` and ```--id```
+replace ```-r``` with  ```--rndz-server``` and ```--remote-id```
+
 
 

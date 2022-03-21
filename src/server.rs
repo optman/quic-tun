@@ -4,6 +4,7 @@ use crate::config::server_config;
 use anyhow::Result;
 use futures_util::stream::StreamExt;
 use quinn::Endpoint;
+use rndz::client::Client as rndz;
 use std::marker::Unpin;
 use std::net::SocketAddr;
 use std::os::unix::{io::AsRawFd, prelude::RawFd};
@@ -66,7 +67,7 @@ pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
         Some(rndz_server) => {
             log::info!("rndz server: {}", rndz_server);
 
-            let c = rndz::client::Client::new(&rndz_server, &opt.id.as_ref().unwrap())?;
+            let c = rndz::new(&rndz_server, &opt.id.as_ref().unwrap())?;
             let mut a = c.listen()?;
 
             while let Ok((socket, _addr)) = a.accept() {

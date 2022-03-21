@@ -771,7 +771,7 @@ dependencies = [
 [[package]]
 name = "rndz"
 version = "0.1.0"
-source = "git+https://github.com/optman/rndz#cf8a51bbb47e0a811df2ee581f1ee40418ebf578"
+source = "git+https://github.com/optman/rndz#e6246281398fd9692f4653543f5123bd30dc5465"
 dependencies = [
  "protobuf",
  "protobuf-codegen-pure",
