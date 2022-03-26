@@ -771,10 +771,11 @@ dependencies = [
 [[package]]
 name = "rndz"
 version = "0.1.0"
-source = "git+https://github.com/optman/rndz#e6246281398fd9692f4653543f5123bd30dc5465"
+source = "git+https://github.com/optman/rndz#96697dd32020760e3d81738b9a9bfb565868526d"
 dependencies = [
  "protobuf",
  "protobuf-codegen-pure",
+ "socket2",
  "structopt",
 ]
 

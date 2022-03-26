@@ -4,7 +4,7 @@ use crate::config::server_config;
 use anyhow::Result;
 use futures_util::stream::StreamExt;
 use quinn::Endpoint;
-use rndz::client::Client as rndz;
+use rndz::udp::Client as rndz;
 use std::marker::Unpin;
 use std::net::SocketAddr;
 use std::os::unix::{io::AsRawFd, prelude::RawFd};
@@ -14,7 +14,6 @@ use structopt::StructOpt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::task;
 
 #[derive(StructOpt, Debug)]
 pub(crate) struct ServerOpt {
@@ -47,6 +46,9 @@ pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
     let (cfg, cert) = server_config(&opt.cert_file)?;
     log::info!("fingerprint: {}", fingerprint(&cert),);
 
+    let mut builder = Endpoint::builder();
+    builder.listen(cfg);
+
     let remote_forward = opt.forward_addr.is_none();
     if !remote_forward {
         log::info!("forward:{}", opt.forward_addr.as_ref().unwrap());
@@ -56,8 +58,6 @@ pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
 
     match opt.rndz_server.as_ref() {
         None => {
-            let mut builder = Endpoint::builder();
-            builder.listen(cfg);
             let (endpoint, incoming) = builder.bind(opt.local_addr.as_ref().unwrap())?;
 
             log::info!("local:{}", endpoint.local_addr().unwrap());
@@ -65,20 +65,14 @@ pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
             handle_incoming(incoming, opt).await?;
         }
         Some(rndz_server) => {
-            log::info!("rndz server: {}", rndz_server);
-
             let c = rndz::new(&rndz_server, &opt.id.as_ref().unwrap())?;
-            let mut a = c.listen()?;
+            let socket = c.listen()?;
 
-            while let Ok((socket, _addr)) = a.accept() {
-                let cfg = cfg.clone();
-                let mut builder = Endpoint::builder(); //builder clone not compiled!
-                builder.listen(cfg);
-                let (_, incoming) = builder.with_socket(socket).unwrap();
+            log::info!("local: {}", socket.local_addr().unwrap());
 
-                let opt = opt.clone();
-                task::spawn(handle_incoming(incoming, opt));
-            }
+            let (_, incoming) = builder.with_socket(socket).unwrap();
+
+            handle_incoming(incoming, opt).await?;
         }
     }
 
