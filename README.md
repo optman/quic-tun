@@ -47,9 +47,9 @@ $curl server:80
 
 ### Use rndz serve to help hole punching
 
-replace ```-l``` with  ```--rndz-server``` and ```--id```
+Server side, add args ```--rndz-server``` and ```--id```
 
-replace ```-r``` with  ```--rndz-server``` and ```--remote-id```
+Client side, replace args ```-r``` with  ```--rndz-server``` and ```--remote-id```
 
 
 

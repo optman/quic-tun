@@ -74,12 +74,13 @@ fn new_ep(opt: &ClientOpt) -> Result<(quinn::Endpoint, SocketAddr)> {
         let mut c = rndz::new(
             rndz_server,
             opt.id.as_ref().ok_or(anyhow!("local id not set"))?,
+            None,
         )?;
-        let (socket, remote_addr) = c.connect(remote_id)?;
+        c.connect(remote_id)?;
 
-        let (endpoint, _incoming) = builder.with_socket(socket)?;
+        let (endpoint, _incoming) = builder.with_socket(c.as_socket().try_clone().unwrap())?;
 
-        Ok((endpoint, remote_addr))
+        Ok((endpoint, c.peer_addr().unwrap()))
     }
 }
 

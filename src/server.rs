@@ -65,12 +65,14 @@ pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
             handle_incoming(incoming, opt).await?;
         }
         Some(rndz_server) => {
-            let c = rndz::new(&rndz_server, &opt.id.as_ref().unwrap())?;
-            let socket = c.listen()?;
+            let mut c = rndz::new(&rndz_server, &opt.id.as_ref().unwrap(), opt.local_addr)?;
+            c.listen()?;
 
-            log::info!("local: {}", socket.local_addr().unwrap());
+            log::info!("local: {}", c.local_addr().unwrap());
 
-            let (_, incoming) = builder.with_socket(socket).unwrap();
+            let (_, incoming) = builder
+                .with_socket(c.as_socket().try_clone().unwrap())
+                .unwrap();
 
             handle_incoming(incoming, opt).await?;
         }
