@@ -40,7 +40,7 @@ pub(crate) struct ServerOpt {
 #[tokio::main]
 pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
     if let Some(psk) = &opt.psk {
-        opt.auth_key = Some(auth_key(&psk));
+        opt.auth_key = Some(auth_key(psk));
     }
 
     let (cfg, cert) = server_config(&opt.cert_file)?;
@@ -65,7 +65,7 @@ pub(crate) async fn run_server(mut opt: ServerOpt) -> Result<()> {
             handle_incoming(incoming, opt).await?;
         }
         Some(rndz_server) => {
-            let mut c = rndz::new(&rndz_server, &opt.id.as_ref().unwrap(), opt.local_addr)?;
+            let mut c = rndz::new(rndz_server, opt.id.as_ref().unwrap(), opt.local_addr)?;
             c.listen()?;
 
             log::info!("local: {}", c.local_addr().unwrap());
@@ -134,13 +134,11 @@ async fn handle_incoming(mut incoming: quinn::Incoming, opt: Arc<ServerOpt>) -> 
                     tokio::spawn(async move {
                         let _ = local_forward(stream0, &fw_addr, rto).await;
                     });
-                } else {
-                    if let Some(fd) =
-                        handle_cmd(stream0.1, stream0.0, conn.connection.clone(), rto).await
-                    {
-                        log::info!("open port success");
-                        listener = Some(fd);
-                    }
+                } else if let Some(fd) =
+                    handle_cmd(stream0.1, stream0.0, conn.connection.clone(), rto).await
+                {
+                    log::info!("open port success");
+                    listener = Some(fd);
                 }
             }
         });

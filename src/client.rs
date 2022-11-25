@@ -53,7 +53,7 @@ fn new_ep(opt: &ClientOpt) -> Result<(quinn::Endpoint, SocketAddr)> {
         let remote_addr = remote_addr
             .to_socket_addrs()?
             .next()
-            .ok_or(anyhow!("no addr"))?;
+            .ok_or_else(|| anyhow!("no addr"))?;
 
         let bind_addr = match remote_addr {
             SocketAddr::V4(_) => "0.0.0.0:0",
@@ -67,13 +67,16 @@ fn new_ep(opt: &ClientOpt) -> Result<(quinn::Endpoint, SocketAddr)> {
         let rndz_server = opt
             .rndz_server
             .as_ref()
-            .ok_or(anyhow!("rndz server not set"))?;
+            .ok_or_else(|| anyhow!("rndz server not set"))?;
 
-        let remote_id = opt.remote_id.as_ref().ok_or(anyhow!("remote id not set"))?;
+        let remote_id = opt
+            .remote_id
+            .as_ref()
+            .ok_or_else(|| anyhow!("remote id not set"))?;
 
         let mut c = rndz::new(
             rndz_server,
-            opt.id.as_ref().ok_or(anyhow!("local id not set"))?,
+            opt.id.as_ref().ok_or_else(|| anyhow!("local id not set"))?,
             None,
         )?;
         c.connect(remote_id)?;
@@ -87,7 +90,7 @@ fn new_ep(opt: &ClientOpt) -> Result<(quinn::Endpoint, SocketAddr)> {
 #[tokio::main]
 pub(crate) async fn run_client(mut opt: ClientOpt) -> Result<()> {
     if let Some(psk) = &opt.psk {
-        opt.auth_key = Some(auth_key(&psk));
+        opt.auth_key = Some(auth_key(psk));
     }
 
     let rto = Duration::from_secs(opt.read_timeout);
